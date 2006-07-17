@@ -17,6 +17,7 @@
  *	B (1)		11
  *	C (1)		12
  *
+ *	http://dguitar.sourceforge.net/GP4format.html
  *
  *	+-------------------------------------------------------+
  *	|	  | Version					|
