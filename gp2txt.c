@@ -47,6 +47,13 @@
 #include <err.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
+
+#include "buf.h"
+
+#ifndef __dead
+#define __dead __attribute__((__noreturn__))
+#endif
 
 __dead void usage(void);
 
@@ -65,7 +72,7 @@ struct gp_info {
 	gp_str		gi_author;
 	gp_str		gi_copyright;
 	gp_str		gi_tabauthor;
-	gp_str		gi_instruction;
+	struct buf	gi_instruction;
 };
 
 struct gp_hdr {
@@ -91,14 +98,14 @@ struct gp_color {
 };
 
 int
-read_str(FILE *fp, char buf[GPSTRLEN])
+read_strbuf(FILE *fp, struct buf *bufp, int max)
 {
 	gp_byte len;
 	int c, j;
 
 	c = fgetc(fp);
 	if (c == EOF)
-		return (0);
+		return (1);
 	if (c >= GPSTRLEN) {
 		warn("string len greater than max: %d", c);
 		c = GPSTRLEN - 1;
@@ -108,19 +115,121 @@ read_str(FILE *fp, char buf[GPSTRLEN])
 	for (j = 0; j < len; j++) {
 		c = fgetc(fp);
 		if (c == EOF)
-			return (0);
+			return (1);
+		buf_append(bufp, c);
+	}
+	for (; j < max; j++) {
+		c = fgetc(fp);
+		if (c != '\0')
+			return (1);
+	}
+	buf_append(bufp, '\0');
+printf("read str \"%s\"\n", buf_get(bufp));
+	return (0);
+}
+
+int
+read_str(FILE *fp, char buf[GPSTRLEN], int max)
+{
+	gp_byte len;
+	int c, j;
+
+	c = fgetc(fp);
+	if (c == EOF)
+		return (1);
+	if (c >= GPSTRLEN) {
+		warn("string len greater than max: %d", c);
+		c = GPSTRLEN - 1;
+	}
+	len = (gp_byte)c;
+
+	for (j = 0; j < len; j++) {
+		c = fgetc(fp);
+		if (c == EOF)
+			return (1);
 		buf[j] = c;
 	}
-	buf[j] = '\0';
-	return (1);
+	for (; j < max; j++) {
+		c = fgetc(fp);
+		if (c != '\0')
+			return (1);
+	}
+	buf[len] = '\0';
+printf("read str \"%s\"\n", buf);
+	return (0);
+}
+
+gp_int
+read_int(FILE *fp, gp_int *n)
+{
+	size_t j;
+	int c;
+
+	*n = 0;
+
+	/* data is stored in little endian */
+	for (j = 0; j < sizeof(gp_int); j++) {
+		c = fgetc(fp);
+		if (c == EOF)
+			return (1);
+		*n |= c << (j * 8);
+	}
+printf("read %d\n", *n);
+	return (0);
 }
 
 int
 read_hdr(FILE *fp, struct gp_tab *gt)
 {
-	read_str(fp, gt->gt_hdr.gh_version);
+	gp_int n, dummy, inslen;
+	struct buf *insbuf;
+	int c, j;
+
+	read_str(fp, gt->gt_hdr.gh_version, 30);
+	read_int(fp, &n);
+	read_str(fp, gt->gt_hdr.gh_info.gi_title, 0);
+	if (fgetc(fp) != 0x01)
+		goto bad;
+	read_int(fp, &dummy);
+	if (dummy != 0)
+		goto bad;
+	read_int(fp, &dummy);
+	if (dummy != 6)
+		goto bad;
+	read_str(fp, gt->gt_hdr.gh_info.gi_author, 0);
+	read_int(fp, &dummy);
+	read_str(fp, gt->gt_hdr.gh_info.gi_album, 0);
+	read_int(fp, &dummy);
+	read_str(fp, gt->gt_hdr.gh_info.gi_interpret, 0);
+	if (fgetc(fp) != 0x01)
+		goto bad;
+	read_int(fp, &dummy);
+	if (dummy != 0)
+		goto bad;
+	read_int(fp, &dummy);
+	read_str(fp, gt->gt_hdr.gh_info.gi_tabauthor, 0);
+	if (fgetc(fp) != 0x01)
+		goto bad;
+	read_int(fp, &dummy);
+	if (dummy != 0)
+		goto bad;
+	read_int(fp, &inslen);
+	if (inslen < 0)
+		goto bad;
+	insbuf = &gt->gt_hdr.gh_info.gi_instruction;
+	buf_init(insbuf);
+	for (j = 0; j < inslen; j++) {
+		read_int(fp, &dummy);
+		if (buf_len(insbuf) > 0)
+			buf_chop(insbuf);
+		read_strbuf(fp, insbuf, 0);
+	}
 
 	return (0);
+
+bad:
+	warnx("bad file format");
+	return (1);
 }
 
 int
@@ -141,7 +250,19 @@ conv(char *fn, struct gp_tab *gt)
 void
 dump(struct gp_tab *gt)
 {
-	printf("Version: %s\n", gt->gt_hdr.gh_version);
+	struct gp_hdr *gh;
+
+	gh = &gt->gt_hdr;
+
+	printf("Version: %s\n",		gh->gh_version);
+	printf("Title: %s\n",		gh->gh_info.gi_title);
+	printf("Author: %s\n",		gh->gh_info.gi_author);
+	printf("Album: %s\n",		gh->gh_info.gi_album);
+	printf("Interpret: %s\n",	gh->gh_info.gi_interpret);
+	printf("Tab Author: %s\n\n",	gh->gh_info.gi_tabauthor);
+
+	if (buf_len(&gh->gh_info.gi_instruction) > 0)
+		printf("%s\n\n", buf_get(&gh->gh_info.gi_instruction));
 }
 
 int
