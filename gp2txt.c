@@ -73,6 +73,7 @@ struct gp_info {
 	gp_str		gi_copyright;
 	gp_str		gi_tabauthor;
 	struct buf	gi_instruction;
+	gp_byte		gi_triplet;
 };
 
 struct gp_hdr {
@@ -183,11 +184,16 @@ read_hdr(FILE *fp, struct gp_tab *gt)
 {
 	gp_int n, dummy, inslen;
 	struct buf *insbuf;
+	struct gp_info *gi;
+	struct gp_hdr *gh;
 	int c, j;
 
-	read_str(fp, gt->gt_hdr.gh_version, 30);
+	gh = &gt->gt_hdr;
+	gi = &gh->gh_info;
+
+	read_str(fp, gh->gh_version, 30);
 	read_int(fp, &n);
-	read_str(fp, gt->gt_hdr.gh_info.gi_title, 0);
+	read_str(fp, gi->gi_title, 0);
 	if (fgetc(fp) != 0x01)
 		goto bad;
 	read_int(fp, &dummy);
@@ -196,18 +202,18 @@ read_hdr(FILE *fp, struct gp_tab *gt)
 	read_int(fp, &dummy);
 	if (dummy != 6)
 		goto bad;
-	read_str(fp, gt->gt_hdr.gh_info.gi_author, 0);
+	read_str(fp, gi->gi_author, 0);
 	read_int(fp, &dummy);
-	read_str(fp, gt->gt_hdr.gh_info.gi_album, 0);
+	read_str(fp, gi->gi_album, 0);
 	read_int(fp, &dummy);
-	read_str(fp, gt->gt_hdr.gh_info.gi_interpret, 0);
+	read_str(fp, gi->gi_interpret, 0);
 	if (fgetc(fp) != 0x01)
 		goto bad;
 	read_int(fp, &dummy);
 	if (dummy != 0)
 		goto bad;
 	read_int(fp, &dummy);
-	read_str(fp, gt->gt_hdr.gh_info.gi_tabauthor, 0);
+	read_str(fp, gi->gi_tabauthor, 0);
 	if (fgetc(fp) != 0x01)
 		goto bad;
 	read_int(fp, &dummy);
@@ -216,7 +222,7 @@ read_hdr(FILE *fp, struct gp_tab *gt)
 	read_int(fp, &inslen);
 	if (inslen < 0)
 		goto bad;
-	insbuf = &gt->gt_hdr.gh_info.gi_instruction;
+	insbuf = &gi->gi_instruction;
 	buf_init(insbuf);
 	for (j = 0; j < inslen; j++) {
 		read_int(fp, &dummy);
@@ -224,6 +230,10 @@ read_hdr(FILE *fp, struct gp_tab *gt)
 			buf_chop(insbuf);
 		read_strbuf(fp, insbuf, 0);
 	}
+	c = fgetc(fp);
+	if (c == EOF)
+		goto bad;
+	gi->gi_triplet = c;
 
 	return (0);
 
